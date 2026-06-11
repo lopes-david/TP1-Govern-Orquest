@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.tox/
+.venv/
+venv/
+env/
+*.pyc
+
+# CDK
+infrastructure/cdk/cdk.out/
+infrastructure/cdk/node_modules/
+infrastructure/cdk/.env
+
+# Terraform
+infrastructure/terraform/.terraform/
+infrastructure/terraform/.terraform.lock.hcl
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.backup
+infrastructure/terraform/*.tfplan
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / Credentials (NUNCA commitar)
+.env
+*.env
+*.pem
+*.key
+secrets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage / Testes
+.coverage
+htmlcov/
+.pytest_cache/

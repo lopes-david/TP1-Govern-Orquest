@@ -1,0 +1,106 @@
+{
+  "Comment": "CloudMart Data Pipeline: raw → bronze → silver → gold",
+  "StartAt": "RawToBronze",
+  "States": {
+    "RawToBronze": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "cloudmart-rawtobronze",
+        "Arguments": {
+          "--RAW_BUCKET": "raw-zone-234828142988",
+          "--BRONZE_BUCKET": "bronze-zone-234828142988"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "BronzeToSilver"
+    },
+    "BronzeToSilver": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "cloudmart-bronzetosilvervendas",
+        "Arguments": {
+          "--BRONZE_BUCKET": "bronze-zone-234828142988",
+          "--SILVER_BUCKET": "silver-zone-234828142988"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "SilverToGold"
+    },
+    "SilverToGold": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "cloudmart-silvertogoldrelatorio",
+        "Arguments": {
+          "--SILVER_BUCKET": "silver-zone-234828142988",
+          "--GOLD_BUCKET": "gold-zone-234828142988",
+          "--ANO": "2024"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "PipelineSuccess"
+    },
+    "PipelineSuccess": {
+      "Type": "Succeed",
+      "Comment": "Pipeline executado com sucesso"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:us-east-1:234828142988:cloudmart-pipeline-alerts",
+        "Message.$": "States.Format('Pipeline falhou na etapa: {}. Erro: {}', $$.State.Name, $.error)"
+      },
+      "Next": "PipelineFailed"
+    },
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "Um ou mais Glue Jobs falharam. Verifique os logs no CloudWatch."
+    }
+  }
+}

@@ -1,0 +1,45 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: cloudmart_bronze
+    schema: bronze
+    tables:
+
+      - name: vendas
+        description: "Fato de vendas — CSV raw convertido para Parquet pelo Glue (particionado ano/mes)"
+        columns:
+          - name: id_venda
+            tests: [not_null, unique]
+          - name: id_cliente
+            tests: [not_null]
+          - name: id_produto
+            tests: [not_null]
+          - name: quantidade
+            tests: [not_null]
+          - name: valor_total
+            tests: [not_null]
+          - name: status_venda
+            tests:
+              - accepted_values:
+                  values: ["Concluída", "Cancelada", "Em andamento"]
+
+      - name: clientes
+        description: "Dimensão clientes"
+        columns:
+          - name: id_cliente
+            tests: [not_null, unique]
+          - name: email
+            tests: [not_null]
+
+      - name: produtos
+        description: "Dimensão produtos"
+        columns:
+          - name: id_produto
+            tests: [not_null, unique]
+
+      - name: regioes
+        description: "Dimensão regiões geográficas"
+        columns:
+          - name: id_regiao
+            tests: [not_null, unique]
