@@ -108,7 +108,7 @@ jobs:
 
       - name: Sync scripts Glue para S3
         run: |
-          aws s3 sync glue_jobs/ s3://meu-datalake-glue-scripts-3f566d84/scripts/ \
+          aws s3 sync glue_jobs/ s3://${{ secrets.GLUE_SCRIPTS_BUCKET }}/scripts/ \
             --exclude "*.pyc" --exclude "__pycache__/*"
 
       - name: CDK Deploy

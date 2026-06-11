@@ -11,16 +11,16 @@ from aws_cdk import (
 from constructs import Construct
 import os
 
-ACCOUNT_ID    = "234828142988"
-RAW_BUCKET    = f"raw-zone-{ACCOUNT_ID}"
-BRONZE_BUCKET = f"bronze-zone-{ACCOUNT_ID}"
-SILVER_BUCKET = f"silver-zone-{ACCOUNT_ID}"
-SCRIPTS_BUCKET = "meu-datalake-glue-scripts-3f566d84"
-
-
 class GlueStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
+
+        account_id     = self.node.try_get_context("account_id") or self.account
+        self.raw_bucket    = f"raw-zone-{account_id}"
+        self.bronze_bucket = f"bronze-zone-{account_id}"
+        self.silver_bucket = f"silver-zone-{account_id}"
+        self.gold_bucket   = f"gold-zone-{account_id}"
+        self.scripts_bucket = self.node.try_get_context("scripts_bucket") or f"meu-datalake-glue-scripts"
 
         role = self._create_glue_role()
         self.jobs = self._create_jobs(role)
@@ -35,7 +35,7 @@ class GlueStack(Stack):
                 ),
             ],
         )
-        for bucket_name in [RAW_BUCKET, BRONZE_BUCKET, SILVER_BUCKET, SCRIPTS_BUCKET]:
+        for bucket_name in [self.raw_bucket, self.bronze_bucket, self.silver_bucket, self.scripts_bucket]:
             bucket = s3.Bucket.from_bucket_name(self, f"Ref{bucket_name[:8]}", bucket_name)
             bucket.grant_read_write(role)
         return role
@@ -50,24 +50,24 @@ class GlueStack(Stack):
                 "id": "RawToBronze",
                 "script": "raw_to_bronze/raw_to_bronze.py",
                 "args": {
-                    "--RAW_BUCKET":    RAW_BUCKET,
-                    "--BRONZE_BUCKET": BRONZE_BUCKET,
+                    "--RAW_BUCKET":    self.raw_bucket,
+                    "--BRONZE_BUCKET": self.bronze_bucket,
                 },
             },
             {
                 "id": "BronzeToSilverVendas",
                 "script": "bronze_to_silver/bronze_to_silver_vendas.py",
                 "args": {
-                    "--BRONZE_BUCKET": BRONZE_BUCKET,
-                    "--SILVER_BUCKET": SILVER_BUCKET,
+                    "--BRONZE_BUCKET": self.bronze_bucket,
+                    "--SILVER_BUCKET": self.silver_bucket,
                 },
             },
             {
                 "id": "SilverToGoldRelatorio",
                 "script": "silver_to_gold/silver_to_gold_relatorio_vendas.py",
                 "args": {
-                    "--SILVER_BUCKET": SILVER_BUCKET,
-                    "--GOLD_BUCKET":   f"gold-zone-{ACCOUNT_ID}",
+                    "--SILVER_BUCKET": self.silver_bucket,
+                    "--GOLD_BUCKET":   self.gold_bucket,
                     "--ANO":           "2024",
                 },
             },

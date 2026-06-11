@@ -4,7 +4,7 @@ Consome eventos em tempo real e persiste JSON particionado por ano/mes/dia/hora.
 
 Parâmetros:
   --JOB_NAME           (injetado pelo Glue)
-  --TARGET_S3_PATH     destino S3 (ex: s3://raw-zone-234828142988/user_clicks/)
+  --TARGET_S3_PATH     destino S3 (ex: s3://raw-zone-<account-id>/user_clicks/)
   --CHECKPOINT_LOCATION localização do checkpoint Spark Streaming
 """
 import sys

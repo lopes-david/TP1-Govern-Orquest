@@ -12,9 +12,6 @@ from aws_cdk import (
 from constructs import Construct
 from .pipeline_stack import PipelineStack
 
-ALERT_EMAIL = "pessoal.david.lopes@gmail.com"
-
-
 class MonitoringStack(Stack):
     def __init__(
         self,
@@ -25,8 +22,11 @@ class MonitoringStack(Stack):
     ):
         super().__init__(scope, construct_id, **kwargs)
 
+        alert_email = self.node.try_get_context("alert_email")
+
         topic = sns.Topic(self, "AlertsTopic", display_name="CloudMart Pipeline Alerts")
-        topic.add_subscription(sns_subs.EmailSubscription(ALERT_EMAIL))
+        if alert_email:
+            topic.add_subscription(sns_subs.EmailSubscription(alert_email))
 
         sfn_arn = pipeline_stack.state_machine.state_machine_arn
 

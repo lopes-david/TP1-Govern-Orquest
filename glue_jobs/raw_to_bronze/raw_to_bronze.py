@@ -5,8 +5,8 @@ Tabelas: vendas (particionado ano/mes), clientes, produtos, regioes.
 
 Parâmetros:
   --JOB_NAME     (injetado pelo Glue)
-  --RAW_BUCKET   ex: raw-zone-234828142988
-  --BRONZE_BUCKET ex: bronze-zone-234828142988
+  --RAW_BUCKET    ex: raw-zone-<account-id>
+  --BRONZE_BUCKET ex: bronze-zone-<account-id>
 """
 import sys
 from awsglue.utils import getResolvedOptions

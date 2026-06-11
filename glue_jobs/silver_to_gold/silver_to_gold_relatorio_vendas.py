@@ -5,8 +5,8 @@ em dashboards e relatórios executivos.
 
 Parâmetros:
   --JOB_NAME      (injetado pelo Glue)
-  --SILVER_BUCKET ex: silver-zone-234828142988
-  --GOLD_BUCKET   ex: gold-zone-234828142988  (criar se não existir)
+  --SILVER_BUCKET ex: silver-zone-<account-id>
+  --GOLD_BUCKET   ex: gold-zone-<account-id>  (criar se não existir)
   --ANO           ex: 2024
   --MES           ex: 1  (opcional — se omitido agrega o ano inteiro)
 """

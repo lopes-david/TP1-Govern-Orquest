@@ -8,8 +8,8 @@
       "Parameters": {
         "JobName": "cloudmart-rawtobronze",
         "Arguments": {
-          "--RAW_BUCKET": "raw-zone-234828142988",
-          "--BRONZE_BUCKET": "bronze-zone-234828142988"
+          "--RAW_BUCKET.$":    "$.raw_bucket",
+          "--BRONZE_BUCKET.$": "$.bronze_bucket"
         }
       },
       "Retry": [
@@ -35,8 +35,8 @@
       "Parameters": {
         "JobName": "cloudmart-bronzetosilvervendas",
         "Arguments": {
-          "--BRONZE_BUCKET": "bronze-zone-234828142988",
-          "--SILVER_BUCKET": "silver-zone-234828142988"
+          "--BRONZE_BUCKET.$": "$.bronze_bucket",
+          "--SILVER_BUCKET.$": "$.silver_bucket"
         }
       },
       "Retry": [
@@ -62,9 +62,9 @@
       "Parameters": {
         "JobName": "cloudmart-silvertogoldrelatorio",
         "Arguments": {
-          "--SILVER_BUCKET": "silver-zone-234828142988",
-          "--GOLD_BUCKET": "gold-zone-234828142988",
-          "--ANO": "2024"
+          "--SILVER_BUCKET.$": "$.silver_bucket",
+          "--GOLD_BUCKET.$":   "$.gold_bucket",
+          "--ANO.$":           "$.ano"
         }
       },
       "Retry": [
@@ -85,14 +85,13 @@
       "Next": "PipelineSuccess"
     },
     "PipelineSuccess": {
-      "Type": "Succeed",
-      "Comment": "Pipeline executado com sucesso"
+      "Type": "Succeed"
     },
     "NotifyFailure": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:234828142988:cloudmart-pipeline-alerts",
+        "TopicArn.$": "$.sns_topic_arn",
         "Message.$": "States.Format('Pipeline falhou na etapa: {}. Erro: {}', $$.State.Name, $.error)"
       },
       "Next": "PipelineFailed"

@@ -5,8 +5,8 @@ regioes) e grava na silver-zone particionado por ano/mes.
 
 Parâmetros:
   --JOB_NAME      (injetado pelo Glue)
-  --BRONZE_BUCKET ex: bronze-zone-234828142988
-  --SILVER_BUCKET ex: silver-zone-234828142988
+  --BRONZE_BUCKET ex: bronze-zone-<account-id>
+  --SILVER_BUCKET ex: silver-zone-<account-id>
 """
 import sys
 from awsglue.utils import getResolvedOptions
