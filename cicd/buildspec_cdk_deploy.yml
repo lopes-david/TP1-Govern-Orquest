@@ -1,0 +1,28 @@
+version: 0.2
+
+# Estágio 2: aplica mudanças de infraestrutura via CDK
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+      nodejs: 20
+    commands:
+      - npm install -g aws-cdk
+      - pip install -r infrastructure/cdk/requirements.txt
+
+  pre_build:
+    commands:
+      - echo "Verificando credenciais AWS..."
+      - aws sts get-caller-identity
+      - echo "Executando CDK synth (validação)..."
+      - cd infrastructure/cdk && cdk synth --no-staging
+
+  build:
+    commands:
+      - echo "Aplicando infraestrutura com CDK deploy..."
+      - cdk deploy --all --require-approval never
+      - echo "Deploy concluído."
+
+  post_build:
+    commands:
+      - echo "Infraestrutura atualizada em $(date)"

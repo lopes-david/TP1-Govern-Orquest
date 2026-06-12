@@ -4,6 +4,7 @@ import aws_cdk as cdk
 from stacks.glue_stack import GlueStack
 from stacks.pipeline_stack import PipelineStack
 from stacks.monitoring_stack import MonitoringStack
+from stacks.cicd_stack import CiCdStack
 
 app = cdk.App()
 env = cdk.Environment(
@@ -14,5 +15,6 @@ env = cdk.Environment(
 glue     = GlueStack(app, "CloudMartGlue", env=env)
 pipeline = PipelineStack(app, "CloudMartPipeline", glue_stack=glue, env=env)
 MonitoringStack(app, "CloudMartMonitoring", pipeline_stack=pipeline, env=env)
+CiCdStack(app, "CloudMartCiCd", env=env)
 
 app.synth()

@@ -1,0 +1,22 @@
+version: 0.2
+
+# Estágio 1: sincroniza os scripts Glue para o S3
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install --upgrade awscli
+
+  build:
+    commands:
+      - echo "Sincronizando scripts Glue para s3://$GLUE_SCRIPTS_BUCKET/scripts/"
+      - aws s3 sync glue_jobs/ s3://$GLUE_SCRIPTS_BUCKET/scripts/
+          --exclude "*.pyc"
+          --exclude "__pycache__/*"
+          --delete
+      - echo "Sync concluído."
+
+  post_build:
+    commands:
+      - echo "Scripts atualizados em $(date)"
