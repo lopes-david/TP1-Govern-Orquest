@@ -4,23 +4,32 @@ config-version: 2
 
 profile: 'cloudmart'
 
-model-paths: ["models"]
-test-paths:  ["tests"]
-macro-paths: ["macros"]
-target-path: "target"
+# Caminhos dos artefatos do projeto
+model-paths:  ["models"]
+test-paths:   ["tests"]
+macro-paths:  ["macros"]
+docs-paths:   ["docs"]
+target-path:  "target"
 clean-targets: ["target", "dbt_packages"]
 
+# Configurações de modelos por camada (arquitetura medallion)
 models:
   cloudmart_dbt:
     bronze:
       +materialized: table
       +schema: bronze
-      +tags: ["bronze"]
+      +tags: ["bronze", "staging"]
+      +docs:
+        show: true
     silver:
       +materialized: table
       +schema: silver
-      +tags: ["silver"]
+      +tags: ["silver", "intermediate"]
+      +docs:
+        show: true
     gold:
       +materialized: table
       +schema: gold
-      +tags: ["gold", "analytics"]
+      +tags: ["gold", "analytics", "mart"]
+      +docs:
+        show: true

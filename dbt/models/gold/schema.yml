@@ -1,0 +1,117 @@
+version: 2
+
+models:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # mart_relatorio_vendas
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: mart_relatorio_vendas
+    description: >
+      **Mart de KPIs de vendas por categoria, região e canal** — gold-zone.
+
+      Fonte de verdade para **dashboards gerenciais, relatórios executivos e
+      consultas analíticas de alto nível**. Agrega métricas de receita, volume
+      e ticket médio para cada combinação de dimensões.
+
+      **⚠️ Filtro crítico:** inclui **somente vendas com `status_venda = 'Concluída'`**.
+      Vendas canceladas e em andamento são excluídas. Isso garante que os KPIs
+      representem **receita efetivamente realizada**.
+
+      **Granularidade:** 1 linha = 1 combinação única de
+      (`categoria`, `nome_regiao`, `canal_venda`, `ano`, `mes`).
+
+      **Atualização:** materializado após cada execução do pipeline
+      `cloudmart-data-pipeline` (Step Functions).
+
+      **Consumidores primários:**
+      - Dashboards de BI (Amazon QuickSight, Power BI, Tableau)
+      - Relatórios mensais de gestão
+      - Monitoramento de metas comerciais por canal/região
+
+      **Quando NÃO usar este mart:**
+      - Análise de vendas canceladas → use `int_vendas_enriched` com filtro
+      - Análise por cliente individual → use `int_vendas_enriched`
+      - Análise de ticket por produto específico → use `int_vendas_enriched`
+    columns:
+      - name: categoria
+        description: >
+          Categoria de mercado do produto (ex: `Eletrônicos`, `Vestuário`).
+          Primeira dimensão de agrupamento. Use para análises de mix de produto
+          e comparação de performance entre categorias.
+        tests:
+          - not_null
+      - name: nome_regiao
+        description: >
+          Nome da região geográfica de entrega (ex: `Sudeste`, `Nordeste`).
+          Segunda dimensão de agrupamento. Use para análises de expansão
+          regional e comparativos de mercado.
+        tests:
+          - not_null
+      - name: canal_venda
+        description: >
+          Canal pelo qual a venda foi originada. Terceira dimensão de agrupamento.
+          Fundamental para análises de **mix de canal** e cálculo de ROI
+          de investimentos por canal (ex: custo de aquisição online vs. loja física).
+
+          Valores: `Online`, `Loja Física`, `Televendas`, `Parceiros`.
+        tests:
+          - not_null
+      - name: ano
+        description: >
+          Ano de referência das vendas agregadas. Coluna de partição no S3.
+          Sempre inclua em filtros: `WHERE ano = 2024`.
+        tests:
+          - not_null
+      - name: mes
+        description: >
+          Mês de referência (1–12). Coluna de partição no S3.
+          Use `ano` + `mes` para filtros mensais eficientes.
+          Para comparativos MoM: filtre dois meses consecutivos e compare
+          `receita_bruta`.
+        tests:
+          - not_null
+      - name: total_pedidos
+        description: >
+          Quantidade de pedidos **concluídos** no período para esta combinação
+          de dimensões. Métrica de **volume** — diferente de `total_unidades`
+          que conta itens individuais.
+          Use para calcular taxa de conversão e comparar com meta de pedidos.
+        tests:
+          - not_null
+      - name: total_unidades
+        description: >
+          Soma total de unidades vendidas (soma de `quantidade`) nos pedidos
+          concluídos. Diferente de `total_pedidos` quando um pedido tem
+          múltiplos itens.
+          Use para análises de giro de estoque e capacidade logística.
+        tests:
+          - not_null
+      - name: receita_bruta
+        description: "{{ doc('col_receita_bruta') }}"
+        tests:
+          - not_null
+      - name: ticket_medio
+        description: "{{ doc('col_ticket_medio') }}"
+        tests:
+          - not_null
+      - name: maior_venda
+        description: >
+          Valor do maior pedido individual (`MAX(valor_total)`) no período
+          e agrupamento. Útil para identificar outliers positivos e
+          oportunidades de upsell/cross-sell.
+          Moeda: BRL. Tipo: DECIMAL(18,2).
+        tests:
+          - not_null
+      - name: menor_venda
+        description: >
+          Valor do menor pedido individual (`MIN(valor_total)`) no período
+          e agrupamento. Útil para definir valor mínimo de pedido e identificar
+          oportunidades de aumentar o ticket médio de pequenas compras.
+          Moeda: BRL. Tipo: DECIMAL(18,2).
+        tests:
+          - not_null
+      - name: _refreshed_at
+        description: >
+          Timestamp de quando este mart foi gerado/atualizado (`TIMESTAMP UTC`).
+          Injetado automaticamente por `current_timestamp` no SQL do modelo.
+          Use para verificar a frescura dos dados antes de apresentar relatórios.

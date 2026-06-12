@@ -1,5 +1,5 @@
 {
-  "Comment": "CloudMart Pipeline: Ingestão → Transformação dbt → Atualização de Views",
+  "Comment": "CloudMart Pipeline: Ingestão → Transformação dbt → Quality Gate → Atualização de Views",
   "StartAt": "Ingestao",
   "States": {
 
@@ -69,6 +69,37 @@
         {
           "ErrorEquals": ["States.ALL"],
           "Next": "NotificarFalha",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "QualityGate"
+    },
+
+    "QualityGate": {
+      "Type": "Task",
+      "Comment": "Etapa 2b – Verifica qualidade dos dados bronze e silver. Interrompe o pipeline se a taxa de erro ultrapassar os limiares: 0% integridade/negócio, 5% completude.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "cloudmart-qualitygate",
+        "Arguments": {
+          "--BRONZE_BUCKET.$":  "$.bronze_bucket",
+          "--SILVER_BUCKET.$":  "$.silver_bucket",
+          "--REPORT_BUCKET.$":  "$.report_bucket"
+        }
+      },
+      "ResultPath": "$.quality_gate_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotificarFalhaQualidade",
           "ResultPath": "$.error"
         }
       ],
@@ -174,6 +205,19 @@
     "Sucesso": {
       "Type": "Succeed",
       "Comment": "Pipeline executado com sucesso — catálogo Athena atualizado"
+    },
+
+    "NotificarFalhaQualidade": {
+      "Type": "Task",
+      "Comment": "Publica alerta específico para falha no Quality Gate com detalhes dos testes reprovados",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn.$": "$.sns_topic_arn",
+        "Subject": "CloudMart Pipeline — FALHA NO QUALITY GATE",
+        "Message.$": "States.Format('Quality Gate reprovado: taxa de erro acima do limiar aceitável. Erro: {}. Verifique o relatório em s3://report-bucket/quality-reports/', States.JsonToString($.error))"
+      },
+      "ResultPath": null,
+      "Next": "Falha"
     },
 
     "NotificarFalha": {

@@ -1,0 +1,50 @@
+# Perfis de conexão dbt — CloudMart Data Platform
+#
+# Usado por dbt_project.yml via `profile: cloudmart`.
+# Todas as credenciais são injetadas por variáveis de ambiente;
+# nunca comitar valores reais neste arquivo.
+#
+# Adaptador: dbt-athena-community (pip install dbt-athena-community)
+# Documentação: https://github.com/dbt-athena/dbt-athena
+#
+# Para gerar a documentação localmente:
+#   cd dbt/
+#   dbt docs generate --profiles-dir . --empty-catalog
+#   dbt docs serve --profiles-dir .
+
+cloudmart:
+  target: prod
+
+  outputs:
+
+    # ── Produção (branch main via CodeBuild / GitHub Actions) ──────────────
+    prod:
+      type: athena
+      # `awsdatacatalog` é o nome padrão do Glue Data Catalog na AWS
+      database: awsdatacatalog
+      schema: bronze
+      s3_staging_dir: "{{ env_var('DBT_S3_STAGING_DIR') }}"
+      region_name: "{{ env_var('AWS_DEFAULT_REGION', 'sa-east-1') }}"
+      aws_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+      aws_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+      # Workgroup padrão do Athena — substituir por workgroup dedicado em produção
+      work_group: primary
+      threads: 4
+      # Intervalo de polling para verificar se a query Athena terminou (segundos)
+      poll_interval: 5
+      num_retries: 3
+
+    # ── Desenvolvimento local ──────────────────────────────────────────────
+    dev:
+      type: athena
+      database: awsdatacatalog
+      # Schema isolado para evitar sobrescrever tabelas de produção
+      schema: bronze_dev
+      s3_staging_dir: "{{ env_var('DBT_S3_STAGING_DIR_DEV', env_var('DBT_S3_STAGING_DIR')) }}"
+      region_name: "{{ env_var('AWS_DEFAULT_REGION', 'sa-east-1') }}"
+      aws_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+      aws_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+      work_group: primary
+      threads: 2
+      poll_interval: 5
+      num_retries: 2

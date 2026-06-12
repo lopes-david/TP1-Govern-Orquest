@@ -51,6 +51,18 @@ class GlueStack(Stack):
                     "--SILVER_BUCKET": self.silver_bucket,
                 },
             },
+            # Quality Gate: executado após a silver ser gerada e antes da gold.
+            # Interrompe o pipeline se a taxa de erro ultrapassar os limiares
+            # definidos em glue_jobs/quality_gate/quality_gate.py.
+            {
+                "id": "QualityGate",
+                "script": "quality_gate/quality_gate.py",
+                "args": {
+                    "--BRONZE_BUCKET": self.bronze_bucket,
+                    "--SILVER_BUCKET": self.silver_bucket,
+                    "--REPORT_BUCKET": self.scripts_bucket,  # reusa bucket de scripts para relatórios
+                },
+            },
             {
                 "id": "SilverToGoldRelatorio",
                 "script": "silver_to_gold/silver_to_gold_relatorio_vendas.py",

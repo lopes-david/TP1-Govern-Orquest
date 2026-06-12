@@ -1,0 +1,136 @@
+version: 2
+
+models:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # int_vendas_enriched
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: int_vendas_enriched
+    description: >
+      **Vendas enriquecidas com dimensões** — modelo central da camada silver.
+
+      Une a fato de vendas com as dimensões clientes, produtos e regiões
+      para produzir um registro completo e autocontido de cada transação.
+
+      **Filtros de qualidade aplicados (registros descartados):**
+      - `quantidade <= 0` — itens sem volume são dados inválidos
+      - `valor_total < 0` — valores negativos indicam erro de origem
+      - `status_venda NOT IN (...)` — domínio fora da lista aceita
+
+      Esses filtros eliminam em média **< 2%** dos registros da bronze-zone.
+      O Glue Job `bronze_to_silver_vendas.py` loga a contagem de rejeitados.
+
+      **Joins aplicados (todos LEFT JOIN):**
+      - `stg_clientes` → `nome_cliente`, `segmento`, `estado`
+      - `stg_produtos` → `nome_produto`, `categoria`
+      - `stg_regioes`  → `nome_regiao`
+
+      Como são LEFT JOINs, `nome_cliente`, `nome_produto` e `nome_regiao`
+      podem ser `NULL` para registros de dimensões ausentes (ex: clientes
+      excluídos por solicitação LGPD). Use `COALESCE` para tratar esses casos.
+
+      **Granularidade:** 1 linha = 1 venda (todos os status incluídos).
+
+      **Consumidores:** `mart_relatorio_vendas` (gold), queries ad-hoc de
+      analistas de dados, modelos de machine learning.
+    columns:
+      - name: id_venda
+        description: >
+          Identificador único da venda. Chave primária deste modelo.
+          Único após os filtros silver — qualquer duplicata indica bug
+          no pipeline e deve ser investigada imediatamente.
+        tests:
+          - not_null
+          - unique
+      - name: id_cliente
+        description: >
+          Chave estrangeira para a dimensão clientes. Pode ser usado para
+          calcular métricas por cliente (LTV, frequência de compra, RFM).
+        tests:
+          - not_null
+      - name: id_produto
+        description: >
+          Chave estrangeira para a dimensão produtos. Use com `categoria`
+          para análises de mix de produto.
+        tests:
+          - not_null
+      - name: id_regiao
+        description: >
+          Chave estrangeira para a dimensão regiões. Representa a região
+          de entrega ou origem do pedido.
+        tests:
+          - not_null
+      - name: data_venda
+        description: >
+          Data do pedido. Use para análises de série temporal, sazonalidade
+          e comparativos período-a-período (YoY, MoM).
+        tests:
+          - not_null
+      - name: ano
+        description: >
+          Ano da venda. Coluna de partição no S3 — sempre inclua nos filtros
+          `WHERE ano = ...` para evitar full table scan no Athena.
+        tests:
+          - not_null
+      - name: mes
+        description: >
+          Mês da venda (1–12). Coluna de partição no S3. Combine com `ano`
+          para queries mensais eficientes: `WHERE ano = 2024 AND mes = 3`.
+        tests:
+          - not_null
+      - name: nome_produto
+        description: >
+          Nome comercial do produto no momento do enriquecimento.
+          Pode ser `NULL` se o produto foi removido do catálogo.
+          Para queries robustas: `COALESCE(nome_produto, 'Produto removido')`.
+      - name: categoria
+        description: >
+          Categoria de mercado do produto. Dimensão de agrupamento mais
+          usada em análises de vendas. Pode ser `NULL` (ver `nome_produto`).
+      - name: nome_cliente
+        description: >
+          Nome completo do cliente. **Dado pessoal (LGPD Art. 5°).**
+          Pode ser `NULL` para clientes excluídos por solicitação de apagamento.
+      - name: segmento
+        description: "{{ doc('col_segmento') }}"
+      - name: estado
+        description: >
+          UF do cliente. Útil para análises de distribuição geográfica
+          de receita e comparativos regionais.
+      - name: nome_regiao
+        description: >
+          Nome da região geográfica. Pode ser `NULL` para regiões não mapeadas.
+          Use para agrupamentos regionais em relatórios executivos.
+      - name: canal_venda
+        description: "{{ doc('col_canal_venda') }}"
+        tests:
+          - not_null
+      - name: status_venda
+        description: "{{ doc('col_status_venda') }}"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Concluída", "Cancelada", "Em andamento"]
+      - name: quantidade
+        description: >
+          Unidades vendidas. Sempre > 0 nesta camada (filtro silver).
+          Use para calcular volume de itens vs. volume de pedidos.
+        tests:
+          - not_null
+      - name: valor_unitario
+        description: >
+          Preço unitário praticado na venda. Útil para análises de pricing
+          e comparação com `preco_unitario` vigente.
+      - name: desconto
+        description: "{{ doc('col_desconto') }}"
+      - name: valor_total
+        description: "{{ doc('col_valor_total') }}"
+        tests:
+          - not_null
+      - name: is_alto_valor
+        description: "{{ doc('col_is_alto_valor') }}"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+              quote: false

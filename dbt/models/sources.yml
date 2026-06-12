@@ -4,42 +4,257 @@ sources:
   - name: bronze
     database: cloudmart_bronze
     schema: bronze
+    description: >
+      **Zona bronze da plataforma CloudMart.**
+
+      Contém os dados brutos originados dos sistemas transacionais (ERP/CRM),
+      convertidos de CSV para Parquet pelo Glue Job `raw_to_bronze.py` e
+      catalogados no AWS Glue Data Catalog.
+
+      **Atualização:** ingestão diária agendada pelo pipeline CloudMart
+      (AWS Step Functions `cloudmart-data-pipeline`).
+
+      **Consumo recomendado:** prefira os modelos `stg_*` deste projeto dbt
+      em vez de consultar estas fontes diretamente — as fontes brutas não
+      têm tipos garantidos e podem conter registros inválidos.
+
     tables:
 
+      # ────────────────────────────────────────────────────────────────────
+      # FATO — vendas
+      # ────────────────────────────────────────────────────────────────────
       - name: vendas
-        description: "Fato de vendas — CSV raw convertido para Parquet pelo Glue (particionado ano/mes)"
+        description: >
+          **Fato de vendas** — tabela central do data warehouse CloudMart.
+
+          Cada linha representa uma transação comercial realizada na plataforma,
+          independentemente de seu status (concluída, cancelada ou em andamento).
+
+          **Granularidade:** 1 linha = 1 venda (`id_venda` único).
+
+          **Particionamento S3:** por `ano` e `mes` para performance analítica.
+
+          **Atenção:** inclui vendas de todos os status. Para análises de
+          **receita confirmada**, use `mart_relatorio_vendas` (gold-zone),
+          que filtra apenas `status_venda = 'Concluída'`.
         columns:
           - name: id_venda
-            tests: [not_null, unique]
-          - name: id_cliente
-            tests: [not_null]
-          - name: id_produto
-            tests: [not_null]
-          - name: quantidade
-            tests: [not_null]
-          - name: valor_total
-            tests: [not_null]
-          - name: status_venda
+            description: "{{ doc('col_id_venda') }}"
             tests:
+              - not_null
+              - unique
+          - name: id_cliente
+            description: "{{ doc('col_id_cliente') }}"
+            tests:
+              - not_null
+          - name: id_produto
+            description: "{{ doc('col_id_produto') }}"
+            tests:
+              - not_null
+          - name: id_regiao
+            description: >
+              Identificador da região geográfica associada à venda.
+              Chave estrangeira para a dimensão `regioes`.
+              Indica a região de entrega ou de origem do pedido.
+            tests:
+              - not_null
+          - name: data_venda
+            description: >
+              Data em que a venda foi registrada no sistema transacional.
+              Formato: `DATE` (YYYY-MM-DD). Representa a data do pedido,
+              não necessariamente a data de entrega ou pagamento.
+            tests:
+              - not_null
+          - name: ano
+            description: >
+              Ano extraído de `data_venda`. Coluna de partição no S3 —
+              incluir nas queries para melhorar performance e reduzir custo
+              no Athena (partition pruning).
+            tests:
+              - not_null
+          - name: mes
+            description: >
+              Mês extraído de `data_venda` (1–12). Coluna de partição no S3.
+              Combinado com `ano` define o período analítico de referência.
+            tests:
+              - not_null
+          - name: quantidade
+            description: >
+              Número de unidades do produto vendidas nesta transação.
+              Sempre inteiro positivo. Registros com `quantidade <= 0`
+              são descartados na camada silver como inválidos.
+            tests:
+              - not_null
+          - name: valor_unitario
+            description: >
+              Preço unitário do produto **no momento da venda** (pode diferir
+              do preço de tabela atual em `produtos.preco_unitario`).
+              Tipo: DECIMAL(18,2). Moeda: BRL.
+            tests:
+              - not_null
+          - name: desconto
+            description: "{{ doc('col_desconto') }}"
+          - name: valor_total
+            description: "{{ doc('col_valor_total') }}"
+            tests:
+              - not_null
+          - name: status_venda
+            description: "{{ doc('col_status_venda') }}"
+            tests:
+              - not_null
               - accepted_values:
                   values: ["Concluída", "Cancelada", "Em andamento"]
+          - name: canal_venda
+            description: "{{ doc('col_canal_venda') }}"
+            tests:
+              - not_null
+          - name: ingestion_ts
+            description: "{{ doc('col_ingestion_ts') }}"
 
+      # ────────────────────────────────────────────────────────────────────
+      # DIMENSÃO — clientes
+      # ────────────────────────────────────────────────────────────────────
       - name: clientes
-        description: "Dimensão clientes"
+        description: >
+          **Dimensão clientes** — cadastro de todos os clientes que realizaram
+          ao menos uma compra na plataforma CloudMart.
+
+          **Granularidade:** 1 linha = 1 cliente (`id_cliente` único).
+
+          **Dados pessoais (LGPD Art. 5°):** esta tabela contém `cpf`,
+          `nome_cliente` e `email`. O acesso é controlado via
+          **Lake Formation Data Cells Filter** — o perfil `MarketingAnalystRole`
+          visualiza `NULL` na coluna `cpf`. Para dados mascarados use o modelo
+          `stg_clientes_marketing`.
         columns:
           - name: id_cliente
-            tests: [not_null, unique]
+            description: >
+              Identificador único do cliente, gerado pelo sistema de cadastro.
+              Chave primária desta dimensão e chave estrangeira em `vendas`.
+            tests:
+              - not_null
+              - unique
+          - name: nome_cliente
+            description: >
+              Nome completo do cliente conforme cadastrado no sistema.
+              **Dado pessoal (LGPD Art. 5°) — NomePessoa.**
+              Normalizado na camada staging (trim de espaços).
+            tests:
+              - not_null
           - name: email
-            tests: [not_null]
+            description: >
+              Endereço de e-mail principal do cliente.
+              **Dado pessoal (LGPD Art. 5°) — Email.**
+              Usado para comunicações transacionais e campanhas de marketing
+              (mediante consentimento). Normalizado para lower-case na camada staging.
+            tests:
+              - not_null
+          - name: cpf
+            description: "{{ doc('col_cpf') }}"
+            tests:
+              - not_null
+          - name: segmento
+            description: "{{ doc('col_segmento') }}"
+            tests:
+              - not_null
+          - name: estado
+            description: >
+              Unidade Federativa (UF) do endereço principal do cliente.
+              Formato: sigla de 2 letras maiúsculas (ex: `SP`, `RJ`, `MG`).
+              Útil para análises regionais e configuração de regras fiscais.
+            tests:
+              - not_null
+          - name: id_regiao
+            description: >
+              Região geográfica do cliente, derivada do CEP/estado do cadastro.
+              Chave estrangeira para a dimensão `regioes`.
+          - name: data_cadastro
+            description: >
+              Data em que o cliente criou sua conta na plataforma.
+              Formato: `DATE`. Permite cálculo de antiguidade e análises de coorte.
+          - name: ingestion_ts
+            description: "{{ doc('col_ingestion_ts') }}"
 
+      # ────────────────────────────────────────────────────────────────────
+      # DIMENSÃO — produtos
+      # ────────────────────────────────────────────────────────────────────
       - name: produtos
-        description: "Dimensão produtos"
+        description: >
+          **Dimensão produtos** — catálogo de produtos disponíveis na plataforma.
+
+          **Granularidade:** 1 linha = 1 SKU (`id_produto` único).
+
+          Inclui produtos ativos e descontinuados (campo `ativo`).
+          Produtos descontinuados ainda aparecem em vendas históricas — não
+          devem ser filtrados em análises de performance passada.
         columns:
           - name: id_produto
-            tests: [not_null, unique]
+            description: >
+              Identificador único do produto (SKU). Chave primária.
+              Imutável: mesmo após descontinuação, o ID não é reutilizado,
+              garantindo consistência do histórico de vendas.
+            tests:
+              - not_null
+              - unique
+          - name: nome_produto
+            description: >
+              Descrição comercial do produto exibida ao cliente.
+              Pode variar ao longo do tempo (ex: rebranding).
+              Para análises históricas, versões antigas estão preservadas.
+            tests:
+              - not_null
+          - name: categoria
+            description: >
+              Categoria de mercado do produto.
+              Usada como dimensão de agrupamento em `mart_relatorio_vendas`.
+              Exemplos: `Eletrônicos`, `Vestuário`, `Casa e Jardim`.
+            tests:
+              - not_null
+          - name: preco_unitario
+            description: >
+              Preço de tabela atual do produto. Tipo: DECIMAL(18,2). Moeda: BRL.
+              **Atenção:** este é o preço vigente no momento da ingestão —
+              para o preço praticado em uma venda específica,
+              use `vendas.valor_unitario`.
+            tests:
+              - not_null
+          - name: fornecedor
+            description: >
+              Nome do fornecedor ou fabricante do produto.
+              Útil para análises de mix por fornecedor e gestão de estoque.
+          - name: ativo
+            description: >
+              Indica se o produto está atualmente disponível para venda.
+              Tipo: `BOOLEAN` (convertido de `S/N` na camada staging).
+              Filtre `ativo = true` para listar o catálogo ativo atual.
+          - name: ingestion_ts
+            description: "{{ doc('col_ingestion_ts') }}"
 
+      # ────────────────────────────────────────────────────────────────────
+      # DIMENSÃO — regioes
+      # ────────────────────────────────────────────────────────────────────
       - name: regioes
-        description: "Dimensão regiões geográficas"
+        description: >
+          **Dimensão regiões geográficas** — tabela de referência estática
+          que mapeia regiões de atuação da CloudMart no Brasil.
+
+          **Granularidade:** 1 linha = 1 região (`id_regiao` único).
+
+          Dimensão de baixa cardinalidade e atualização rara — alterações
+          ocorrem apenas quando a empresa expande ou reorganiza sua cobertura.
         columns:
           - name: id_regiao
-            tests: [not_null, unique]
+            description: >
+              Identificador único da região. Chave primária.
+              Referenciado por `clientes.id_regiao` e `vendas.id_regiao`.
+            tests:
+              - not_null
+              - unique
+          - name: nome_regiao
+            description: >
+              Nome descritivo da região geográfica (ex: `Sudeste`, `Norte`,
+              `Centro-Oeste`). Usado como label nos dashboards e relatórios.
+            tests:
+              - not_null
+          - name: ingestion_ts
+            description: "{{ doc('col_ingestion_ts') }}"

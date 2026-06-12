@@ -1,0 +1,309 @@
+version: 2
+
+models:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # stg_vendas
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: stg_vendas
+    description: >
+      **Staging de vendas** — camada bronze tipada e validada.
+
+      Aplica cast de tipos sobre `source('bronze', 'vendas')` e elimina
+      registros com `id_venda IS NULL` (identificados como mal formados na fonte).
+
+      **Transformações em relação à fonte bruta:**
+      - Todos os IDs castados para `INTEGER`
+      - `data_venda` castada para `DATE`
+      - `valor_unitario` e `valor_total` castados para `DECIMAL(18,2)`
+      - `desconto` castado para `DECIMAL(5,4)`
+
+      **Não inclui joins** — use `int_vendas_enriched` para dados
+      enriquecidos com nome do cliente, produto e região.
+
+      **Consumidores:** camada silver (`int_vendas_enriched`).
+    columns:
+      - name: id_venda
+        description: "{{ doc('col_id_venda') }}"
+        tests:
+          - not_null
+          - unique
+      - name: id_cliente
+        description: "{{ doc('col_id_cliente') }}"
+        tests:
+          - not_null
+      - name: id_produto
+        description: "{{ doc('col_id_produto') }}"
+        tests:
+          - not_null
+      - name: id_regiao
+        description: >
+          Chave estrangeira para `stg_regioes`. Indica a região de entrega
+          ou origem do pedido. Castado para `INTEGER`.
+        tests:
+          - not_null
+      - name: data_venda
+        description: >
+          Data do pedido, castada para `DATE`. Não confundir com data de
+          entrega ou data de pagamento, que não constam nesta tabela.
+        tests:
+          - not_null
+      - name: ano
+        description: >
+          Ano da venda (`INTEGER`). Coluna de partição S3 — sempre inclua
+          nas cláusulas `WHERE` para reduzir scan e custo no Athena.
+        tests:
+          - not_null
+      - name: mes
+        description: >
+          Mês da venda (1–12, `INTEGER`). Coluna de partição S3 — combine
+          com `ano` nos filtros para partition pruning eficiente.
+        tests:
+          - not_null
+      - name: quantidade
+        description: >
+          Unidades vendidas nesta transação (`INTEGER`, sempre > 0).
+          Registros com quantidade ≤ 0 não chegam a esta tabela
+          (filtrados na fonte antes da ingestão).
+        tests:
+          - not_null
+      - name: valor_unitario
+        description: >
+          Preço unitário praticado **nesta venda** (`DECIMAL(18,2)`).
+          Pode diferir de `produtos.preco_unitario` por promoções ou
+          negociações. Moeda: BRL.
+        tests:
+          - not_null
+      - name: desconto
+        description: "{{ doc('col_desconto') }}"
+      - name: valor_total
+        description: "{{ doc('col_valor_total') }}"
+        tests:
+          - not_null
+      - name: status_venda
+        description: "{{ doc('col_status_venda') }}"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Concluída", "Cancelada", "Em andamento"]
+      - name: canal_venda
+        description: "{{ doc('col_canal_venda') }}"
+        tests:
+          - not_null
+      - name: ingestion_ts
+        description: "{{ doc('col_ingestion_ts') }}"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # stg_clientes
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: stg_clientes
+    description: >
+      **Staging de clientes** — dimensão de clientes normalizada.
+
+      Aplica transformações de limpeza sobre `source('bronze', 'clientes')`:
+      - `email` convertido para **lower-case** (padroniza duplicatas de maiúsculas)
+      - `estado` convertido para **upper-case** (garante `SP`, nunca `sp`)
+      - `id_cliente` e `id_regiao` castados para `INTEGER`
+      - `data_cadastro` castada para `DATE`
+      - Filtro: `WHERE id_cliente IS NOT NULL`
+
+      **⚠️ Contém dados pessoais (LGPD):** `cpf`, `nome_cliente` e `email`.
+      Para uso pelo perfil Analista de Marketing, use `stg_clientes_marketing`
+      (CPF substituído por NULL).
+
+      **Consumidores:** `int_vendas_enriched` (join), `stg_clientes_marketing`.
+    columns:
+      - name: id_cliente
+        description: >
+          Identificador único do cliente (`INTEGER`). Chave primária desta
+          dimensão; chave estrangeira em `stg_vendas`.
+        tests:
+          - not_null
+          - unique
+      - name: nome_cliente
+        description: >
+          Nome completo do cliente. **Dado pessoal — LGPD Art. 5° (NomePessoa).**
+          Mantido sem transformação (apenas trim implícito da fonte).
+        tests:
+          - not_null
+      - name: email
+        description: >
+          E-mail do cliente normalizado para **lower-case**.
+          **Dado pessoal — LGPD Art. 5° (Email).**
+          Principal canal de contato para comunicações transacionais.
+        tests:
+          - not_null
+      - name: cpf
+        description: "{{ doc('col_cpf') }}"
+        tests:
+          - not_null
+      - name: segmento
+        description: "{{ doc('col_segmento') }}"
+        tests:
+          - not_null
+      - name: estado
+        description: >
+          UF do cliente em **upper-case** (ex: `SP`, `RJ`).
+          Normalizado para evitar inconsistências de case na fonte.
+        tests:
+          - not_null
+      - name: id_regiao
+        description: >
+          Região geográfica do cliente (`INTEGER`). Chave estrangeira para
+          `stg_regioes`. Derivada do estado/CEP pelo sistema de origem.
+      - name: data_cadastro
+        description: >
+          Data em que o cliente criou sua conta (`DATE`).
+          Permite calcular **idade do cliente** e construir análises de coorte
+          (ex: comportamento no 1° mês após cadastro).
+      - name: ingestion_ts
+        description: "{{ doc('col_ingestion_ts') }}"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # stg_clientes_marketing
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: stg_clientes_marketing
+    description: >
+      **Visão mascarada de clientes para o perfil Analista de Marketing.**
+
+      Derivada de `stg_clientes` com a coluna `cpf` substituída por `NULL`.
+      Projetada para uso em campanhas e análises de segmentação onde o CPF
+      não é necessário.
+
+      **Mecanismo duplo de proteção do CPF:**
+      1. **Este modelo** — materializa a tabela sem CPF no catálogo silver.
+      2. **Lake Formation Data Cells Filter** `marketing_analyst_cpf_exclusion`
+         — exclui `cpf` da tabela `bronze.clientes` original para a IAM Role
+         `MarketingAnalystRole` mesmo em consultas Athena diretas.
+
+      **Base legal (LGPD):**
+      - Art. 6°, III — necessidade (marketing não precisa de CPF)
+      - Art. 46 — medidas técnicas de proteção
+
+      **Consumidores:** Equipe de Marketing, ferramentas de CRM/automação.
+    columns:
+      - name: id_cliente
+        description: >
+          Identificador único do cliente. Pode ser usado para joins com
+          `mart_relatorio_vendas` para análises de RFM (Recência,
+          Frequência, Monetário).
+        tests: [not_null, unique]
+      - name: nome_cliente
+        description: >
+          Nome completo do cliente. Dado pessoal presente nesta view
+          pois é necessário para personalização de comunicações.
+        tests: [not_null]
+      - name: email
+        description: >
+          E-mail do cliente (lower-case). Principal identificador para
+          envio de campanhas e comunicações de marketing.
+        tests: [not_null]
+      - name: cpf
+        description: >
+          **Sempre `NULL` nesta view — dado pessoal mascarado.**
+          A coluna existe no schema para manter compatibilidade com queries
+          que fazem `SELECT *`, mas o valor nunca é exposto.
+        tests: []
+      - name: segmento
+        description: "{{ doc('col_segmento') }}"
+        tests: [not_null]
+      - name: estado
+        description: >
+          UF do cliente (upper-case). Fundamental para segmentação
+          geográfica de campanhas e análise de penetração regional.
+        tests: [not_null]
+      - name: id_regiao
+        description: >
+          Região geográfica. Use junto com `mart_relatorio_vendas.nome_regiao`
+          para correlacionar perfis de clientes com performance de vendas.
+      - name: data_cadastro
+        description: >
+          Data de cadastro do cliente. Permite segmentar por maturidade
+          (ex: clientes cadastrados há menos de 90 dias para campanhas de
+          onboarding).
+      - name: ingestion_ts
+        description: "{{ doc('col_ingestion_ts') }}"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # stg_produtos
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: stg_produtos
+    description: >
+      **Staging de produtos** — catálogo de SKUs normalizado.
+
+      Transformações sobre `source('bronze', 'produtos')`:
+      - `id_produto` castado para `INTEGER`
+      - `preco_unitario` castado para `DECIMAL(18,2)`
+      - Campo `ativo` convertido de string `'S'/'N'` para **BOOLEAN**
+
+      **Consumidores:** `int_vendas_enriched` (join para enriquecer vendas
+      com `nome_produto` e `categoria`).
+    columns:
+      - name: id_produto
+        description: >
+          Identificador único do produto/SKU (`INTEGER`). Chave primária.
+          Imutável mesmo após descontinuação — use `ativo` para filtrar
+          o catálogo ativo.
+        tests:
+          - not_null
+          - unique
+      - name: nome_produto
+        description: >
+          Descrição comercial do produto. Texto livre, max ~200 caracteres.
+          Usado como label nos relatórios e dashboards.
+        tests:
+          - not_null
+      - name: categoria
+        description: >
+          Categoria de mercado do produto. Dimensão de agrupamento fundamental
+          em `mart_relatorio_vendas`. Exemplos: `Eletrônicos`, `Vestuário`.
+        tests:
+          - not_null
+      - name: preco_unitario
+        description: >
+          Preço de tabela **atual** do produto (`DECIMAL(18,2)`). Moeda: BRL.
+          Para o preço praticado em vendas passadas, use `stg_vendas.valor_unitario`.
+        tests:
+          - not_null
+      - name: fornecedor
+        description: >
+          Nome do fornecedor/fabricante. Útil para análises de mix de fornecedor,
+          SLA de entrega e negociações comerciais.
+      - name: ativo
+        description: >
+          `TRUE` se o produto está disponível para venda; `FALSE` se descontinuado.
+          Convertido de string `'S'`/`'N'` da fonte para BOOLEAN nesta camada.
+          Não filtre por `ativo` em análises históricas de vendas.
+      - name: ingestion_ts
+        description: "{{ doc('col_ingestion_ts') }}"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # stg_regioes
+  # ══════════════════════════════════════════════════════════════════════════
+  - name: stg_regioes
+    description: >
+      **Staging de regiões geográficas** — tabela de referência.
+
+      Dimensão estática de baixa cardinalidade. Alterações ocorrem apenas
+      quando a CloudMart reorganiza sua estrutura de cobertura regional.
+      Sem transformações além de tipo: `id_regiao` castado para `INTEGER`.
+
+      **Consumidores:** `int_vendas_enriched` (join para enriquecer vendas
+      com `nome_regiao`).
+    columns:
+      - name: id_regiao
+        description: >
+          Identificador único da região (`INTEGER`). Chave primária.
+          Referenciado por `stg_vendas.id_regiao` e `stg_clientes.id_regiao`.
+        tests:
+          - not_null
+          - unique
+      - name: nome_regiao
+        description: >
+          Nome descritivo da região (ex: `Sudeste`, `Sul`, `Nordeste`).
+          Usado como label nos dashboards. Aparece em `mart_relatorio_vendas`
+          como dimensão de agrupamento.
+        tests:
+          - not_null
+      - name: ingestion_ts
+        description: "{{ doc('col_ingestion_ts') }}"
