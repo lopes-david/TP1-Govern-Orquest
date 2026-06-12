@@ -6,7 +6,6 @@ from aws_cdk import (
     Stack, Duration,
     aws_glue_alpha as glue_alpha,
     aws_iam as iam,
-    aws_s3 as s3,
 )
 from constructs import Construct
 import os
@@ -27,19 +26,8 @@ class GlueStack(Stack):
         self.jobs = self._create_jobs(role)
 
     def _create_glue_role(self) -> iam.Role:
-        role = iam.Role(
-            self, "GlueServiceRole",
-            assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSGlueServiceRole"
-                ),
-            ],
-        )
-        for name in [self.raw_bucket, self.bronze_bucket, self.silver_bucket, self.scripts_bucket]:
-            bucket = s3.Bucket.from_bucket_name(self, f"Ref{name[:10].replace('-','')}", name)
-            bucket.grant_read_write(role)
-        return role
+        # Reutiliza o role existente GlueETLRole que já tem acesso aos buckets
+        return iam.Role.from_role_name(self, "GlueETLRole", "GlueETLRole")
 
     def _create_jobs(self, role: iam.Role) -> dict:
         scripts_root = os.path.join(

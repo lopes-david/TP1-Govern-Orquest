@@ -16,7 +16,7 @@ from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from pyspark.sql.functions import (
-    col, sum as spark_sum, count, avg, max as spark_max,
+    col, lit, sum as spark_sum, count, avg, max as spark_max,
     min as spark_min, current_timestamp
 )
 
@@ -32,7 +32,13 @@ silver = f"s3://{args['SILVER_BUCKET']}"
 gold   = f"s3://{args['GOLD_BUCKET']}"
 ano    = args['ANO']
 
-df_silver = spark.read.parquet(f"{silver}/vendas/ano={ano}/")
+# Lê do path raiz com basePath para preservar colunas de partição (ano, mes)
+df_silver = (
+    spark.read
+    .option("basePath", f"{silver}/vendas/")
+    .parquet(f"{silver}/vendas/ano={ano}/")
+    .withColumn("ano", lit(int(ano)))
+)
 
 # KPI por categoria + região + canal_venda
 df_gold = (

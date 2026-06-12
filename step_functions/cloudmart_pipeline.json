@@ -1,9 +1,11 @@
 {
-  "Comment": "CloudMart Data Pipeline: raw → bronze → silver → gold",
-  "StartAt": "RawToBronze",
+  "Comment": "CloudMart Pipeline: Ingestão → Transformação dbt → Atualização de Views",
+  "StartAt": "Ingestao",
   "States": {
-    "RawToBronze": {
+
+    "Ingestao": {
       "Type": "Task",
+      "Comment": "Etapa 1 – Lê CSVs da raw-zone e grava Parquet na bronze-zone",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "cloudmart-rawtobronze",
@@ -12,10 +14,17 @@
           "--BRONZE_BUCKET.$": "$.bronze_bucket"
         }
       },
+      "ResultPath": "$.ingestao_result",
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
           "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
           "MaxAttempts": 2,
           "BackoffRate": 2.0
         }
@@ -23,14 +32,16 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "NotifyFailure",
+          "Next": "NotificarFalha",
           "ResultPath": "$.error"
         }
       ],
-      "Next": "BronzeToSilver"
+      "Next": "TransformacaoDbt"
     },
-    "BronzeToSilver": {
+
+    "TransformacaoDbt": {
       "Type": "Task",
+      "Comment": "Etapa 2 – Aplica regras dbt: qualidade, enriquecimento e joins (bronze→silver)",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "cloudmart-bronzetosilvervendas",
@@ -39,10 +50,17 @@
           "--SILVER_BUCKET.$": "$.silver_bucket"
         }
       },
+      "ResultPath": "$.dbt_result",
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
           "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
           "MaxAttempts": 2,
           "BackoffRate": 2.0
         }
@@ -50,14 +68,16 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "NotifyFailure",
+          "Next": "NotificarFalha",
           "ResultPath": "$.error"
         }
       ],
-      "Next": "SilverToGold"
+      "Next": "AtualizacaoViews"
     },
-    "SilverToGold": {
+
+    "AtualizacaoViews": {
       "Type": "Task",
+      "Comment": "Etapa 3a – Agrega KPIs na gold-zone (silver→gold)",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "cloudmart-silvertogoldrelatorio",
@@ -67,10 +87,17 @@
           "--ANO.$":           "$.ano"
         }
       },
+      "ResultPath": "$.gold_result",
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
           "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
           "MaxAttempts": 2,
           "BackoffRate": 2.0
         }
@@ -78,28 +105,94 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "NotifyFailure",
+          "Next": "NotificarFalha",
           "ResultPath": "$.error"
         }
       ],
-      "Next": "PipelineSuccess"
+      "Next": "IniciarCrawler"
     },
-    "PipelineSuccess": {
-      "Type": "Succeed"
-    },
-    "NotifyFailure": {
+
+    "IniciarCrawler": {
       "Type": "Task",
+      "Comment": "Etapa 3b – Dispara o Glue Crawler para atualizar o catálogo Athena",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": {
+        "Name": "silver-zone-crawler"
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": ["Glue.CrawlerRunningException"],
+          "Next": "AguardarCrawler",
+          "ResultPath": null
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotificarFalha",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "AguardarCrawler"
+    },
+
+    "AguardarCrawler": {
+      "Type": "Wait",
+      "Comment": "Aguarda 30 segundos antes de verificar o status do crawler",
+      "Seconds": 30,
+      "Next": "VerificarCrawler"
+    },
+
+    "VerificarCrawler": {
+      "Type": "Task",
+      "Comment": "Consulta o status atual do Glue Crawler",
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+      "Parameters": {
+        "Name": "silver-zone-crawler"
+      },
+      "ResultPath": "$.crawler_status",
+      "Next": "CrawlerConcluido"
+    },
+
+    "CrawlerConcluido": {
+      "Type": "Choice",
+      "Comment": "Verifica se o crawler terminou ou ainda está rodando",
+      "Choices": [
+        {
+          "Variable": "$.crawler_status.Crawler.State",
+          "StringEquals": "RUNNING",
+          "Next": "AguardarCrawler"
+        },
+        {
+          "Variable": "$.crawler_status.Crawler.State",
+          "StringEquals": "STOPPING",
+          "Next": "AguardarCrawler"
+        }
+      ],
+      "Default": "Sucesso"
+    },
+
+    "Sucesso": {
+      "Type": "Succeed",
+      "Comment": "Pipeline executado com sucesso — catálogo Athena atualizado"
+    },
+
+    "NotificarFalha": {
+      "Type": "Task",
+      "Comment": "Publica alerta no SNS com detalhes da falha",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
         "TopicArn.$": "$.sns_topic_arn",
-        "Message.$": "States.Format('Pipeline falhou na etapa: {}. Erro: {}', $$.State.Name, $.error)"
+        "Subject": "CloudMart Pipeline — FALHA",
+        "Message.$": "States.Format('Falha na etapa {}. Erro: {}', $$.State.Name, States.JsonToString($.error))"
       },
-      "Next": "PipelineFailed"
+      "ResultPath": null,
+      "Next": "Falha"
     },
-    "PipelineFailed": {
+
+    "Falha": {
       "Type": "Fail",
       "Error": "PipelineError",
-      "Cause": "Um ou mais Glue Jobs falharam. Verifique os logs no CloudWatch."
+      "Cause": "Uma etapa do pipeline falhou. Verifique o SNS e os logs do CloudWatch."
     }
   }
 }
