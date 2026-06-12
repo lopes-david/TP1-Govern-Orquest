@@ -2,8 +2,11 @@
 Stack CDK: CI/CD Pipeline
 CodePipeline + CodeBuild conectado ao GitHub (main branch).
 Ao detectar push no main:
-  1. SyncScripts  — sincroniza glue_jobs/ para o S3
-  2. CdkDeploy    — executa cdk deploy --all
+  1. SyncScripts — sincroniza glue_jobs/ para o S3
+  2. CdkDeploy   — executa cdk deploy --all
+
+Todos os parâmetros vêm de contexto CDK (--context) sem nada hardcoded.
+O GitHub token é lido do Secrets Manager — nunca em texto plano.
 """
 from aws_cdk import (
     Stack,
@@ -21,10 +24,10 @@ class CiCdStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
 
-        github_owner  = self.node.try_get_context("github_owner")
-        github_repo   = self.node.try_get_context("github_repo")
-        github_branch = self.node.try_get_context("github_branch") or "main"
-        github_token  = self.node.try_get_context("github_token")
+        github_secret_name  = self.node.try_get_context("github_secret_name")
+        github_owner        = self.node.try_get_context("github_owner")
+        github_repo         = self.node.try_get_context("github_repo")
+        github_branch       = self.node.try_get_context("github_branch") or "main"
         scripts_bucket_name = self.node.try_get_context("scripts_bucket")
 
         scripts_bucket = s3.Bucket.from_bucket_name(
@@ -33,7 +36,7 @@ class CiCdStack(Stack):
 
         pipeline_role = self._create_pipeline_role(scripts_bucket)
 
-        # --- Artefato de source ---
+        # --- Source: GitHub via webhook ---
         source_output = cp.Artifact("SourceOutput")
 
         source_action = cpa.GitHubSourceAction(
@@ -41,7 +44,7 @@ class CiCdStack(Stack):
             owner=github_owner,
             repo=github_repo,
             branch=github_branch,
-            oauth_token=SecretValue.unsafe_plain_text(github_token),
+            oauth_token=SecretValue.secrets_manager(github_secret_name),
             output=source_output,
             trigger=cpa.GitHubTrigger.WEBHOOK,
         )
@@ -59,8 +62,9 @@ class CiCdStack(Stack):
                     },
                     "build": {
                         "commands": [
-                            "echo Sincronizando scripts Glue para s3://$GLUE_SCRIPTS_BUCKET/scripts/",
-                            "aws s3 sync glue_jobs/ s3://$GLUE_SCRIPTS_BUCKET/scripts/ --exclude '*.pyc' --exclude '__pycache__/*' --delete",
+                            "echo Sincronizando scripts Glue...",
+                            "aws s3 sync glue_jobs/ s3://$GLUE_SCRIPTS_BUCKET/scripts/"
+                            " --exclude '*.pyc' --exclude '__pycache__/*' --delete",
                             "echo Sync concluido.",
                         ]
                     },
@@ -77,13 +81,12 @@ class CiCdStack(Stack):
             role=pipeline_role,
         )
 
-        sync_action = cpa.CodeBuildAction(
-            action_name="Sync_Glue_Scripts",
-            project=sync_project,
-            input=source_output,
+        # --- Estágio 2: CDK deploy ---
+        ctx = (
+            f" --context account_id={self.account}"
+            f" --context scripts_bucket={scripts_bucket_name}"
         )
 
-        # --- Estágio 2: CDK deploy ---
         cdk_project = cb.PipelineProject(
             self, "CdkDeployProject",
             project_name="cloudmart-cdk-deploy",
@@ -100,16 +103,12 @@ class CiCdStack(Stack):
                     "pre_build": {
                         "commands": [
                             "aws sts get-caller-identity",
-                            "cd infrastructure/cdk && cdk synth --no-staging"
-                                + f" --context account_id={self.account}"
-                                + f" --context scripts_bucket={scripts_bucket_name}",
+                            f"cd infrastructure/cdk && cdk synth --no-staging{ctx}",
                         ]
                     },
                     "build": {
                         "commands": [
-                            "cdk deploy --all --require-approval never"
-                                + f" --context account_id={self.account}"
-                                + f" --context scripts_bucket={scripts_bucket_name}",
+                            f"cdk deploy --all --require-approval never{ctx}",
                         ]
                     },
                 },
@@ -120,21 +119,23 @@ class CiCdStack(Stack):
             role=pipeline_role,
         )
 
-        cdk_action = cpa.CodeBuildAction(
-            action_name="CDK_Deploy",
-            project=cdk_project,
-            input=source_output,
-        )
-
-        # --- Pipeline ---
+        # --- Pipeline completo ---
         self.pipeline = cp.Pipeline(
             self, "CloudMartCiCdPipeline",
             pipeline_name="cloudmart-ci-cd-pipeline",
             role=pipeline_role,
             stages=[
                 cp.StageProps(stage_name="Source",      actions=[source_action]),
-                cp.StageProps(stage_name="SyncScripts", actions=[sync_action]),
-                cp.StageProps(stage_name="CdkDeploy",   actions=[cdk_action]),
+                cp.StageProps(stage_name="SyncScripts", actions=[cpa.CodeBuildAction(
+                    action_name="Sync_Glue_Scripts",
+                    project=sync_project,
+                    input=source_output,
+                )]),
+                cp.StageProps(stage_name="CdkDeploy",   actions=[cpa.CodeBuildAction(
+                    action_name="CDK_Deploy",
+                    project=cdk_project,
+                    input=source_output,
+                )]),
             ],
         )
 
@@ -146,10 +147,7 @@ class CiCdStack(Stack):
                 iam.ServicePrincipal("codebuild.amazonaws.com"),
             ),
         )
-        # Permissões para sync de scripts
         scripts_bucket.grant_read_write(role)
-
-        # Permissões para CDK deploy (CloudFormation + recursos gerenciados)
         role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess")
         )
