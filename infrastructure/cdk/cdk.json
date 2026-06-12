@@ -4,6 +4,7 @@
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/aws-iam:minimizePolicies": true,
+    "region":              "sa-east-1",
     "scripts_bucket":      "meu-datalake-glue-scripts-3f566d84",
     "github_secret_name":  "cloudmart/github-token",
     "github_owner":        "lopes-david",
