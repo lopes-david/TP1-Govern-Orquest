@@ -82,11 +82,6 @@ class CiCdStack(Stack):
         )
 
         # --- Estágio 2: CDK deploy ---
-        ctx = (
-            f" --context account_id={self.account}"
-            f" --context scripts_bucket={scripts_bucket_name}"
-        )
-
         cdk_project = cb.PipelineProject(
             self, "CdkDeployProject",
             project_name="cloudmart-cdk-deploy",
@@ -103,12 +98,12 @@ class CiCdStack(Stack):
                     "pre_build": {
                         "commands": [
                             "aws sts get-caller-identity",
-                            f"cd infrastructure/cdk && cdk synth --no-staging{ctx}",
+                            "cd infrastructure/cdk && cdk synth --no-staging",
                         ]
                     },
                     "build": {
                         "commands": [
-                            f"cdk deploy --all --require-approval never{ctx}",
+                            "cdk deploy --all --require-approval never",
                         ]
                     },
                 },
