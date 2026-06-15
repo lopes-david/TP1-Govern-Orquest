@@ -9,6 +9,7 @@ from stacks.governance_stack import GovernanceStack
 from stacks.access_control_stack import AccessControlStack
 from stacks.athena_stack import AthenaStack
 from stacks.quicksight_stack import QuickSightStack
+from stacks.feature_store_stack import FeatureStoreStack
 
 app = cdk.App()
 env = cdk.Environment(
@@ -24,5 +25,6 @@ GovernanceStack(app, "CloudMartGovernance", env=env)
 AccessControlStack(app, "CloudMartAccessControl", env=env)
 AthenaStack(app, "CloudMartAthena", env=env)
 QuickSightStack(app, "CloudMartQuickSight", env=env)
+FeatureStoreStack(app, "CloudMartFeatureStore", env=env)
 
 app.synth()
