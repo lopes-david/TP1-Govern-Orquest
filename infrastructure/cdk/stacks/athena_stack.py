@@ -224,7 +224,7 @@ ORDER BY  total_clientes DESC;""",
         ]
 
         for q in queries:
-            athena.CfnNamedQuery(
+            nq = athena.CfnNamedQuery(
                 self, q["id"],
                 name=q["name"],
                 description=q["description"],
@@ -232,3 +232,5 @@ ORDER BY  total_clientes DESC;""",
                 query_string=q["query"],
                 work_group=self.workgroup.name,
             )
+            # Garante que o workgroup exista antes de criar a NamedQuery
+            nq.add_dependency(self.workgroup)
