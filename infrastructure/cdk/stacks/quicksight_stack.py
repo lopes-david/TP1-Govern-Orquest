@@ -106,8 +106,8 @@ class QuickSightStack(Stack):
                 ]
             ),
             schema_change_policy=glue.CfnCrawler.SchemaChangePolicyProperty(
-                update_behavior="UPDATE_IN_DATABASE",
-                delete_behavior="DEPRECATE_IN_DATABASE",
+                update_behavior="LOG",
+                delete_behavior="LOG",
             ),
             recrawl_policy=glue.CfnCrawler.RecrawlPolicyProperty(
                 recrawl_behavior="CRAWL_NEW_FOLDERS_ONLY",
