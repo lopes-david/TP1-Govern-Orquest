@@ -7,6 +7,7 @@ from stacks.monitoring_stack import MonitoringStack
 from stacks.cicd_stack import CiCdStack
 from stacks.governance_stack import GovernanceStack
 from stacks.access_control_stack import AccessControlStack
+from stacks.athena_stack import AthenaStack
 
 app = cdk.App()
 env = cdk.Environment(
@@ -20,5 +21,6 @@ MonitoringStack(app, "CloudMartMonitoring", pipeline_stack=pipeline, env=env)
 CiCdStack(app, "CloudMartCiCd", env=env)
 GovernanceStack(app, "CloudMartGovernance", env=env)
 AccessControlStack(app, "CloudMartAccessControl", env=env)
+AthenaStack(app, "CloudMartAthena", env=env)
 
 app.synth()

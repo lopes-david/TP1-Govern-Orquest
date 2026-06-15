@@ -140,7 +140,7 @@ class AccessControlStack(Stack):
             resources=["*"],
         ))
 
-        # S3 — apenas bucket de resultados do Athena (não o bronze)
+        # S3 — bucket de resultados do Athena (criado pela AthenaStack)
         role.add_to_policy(iam.PolicyStatement(
             sid="AthenaResultsBucketAccess",
             actions=[
@@ -150,9 +150,21 @@ class AccessControlStack(Stack):
                 "s3:GetBucketLocation",
             ],
             resources=[
-                # O bucket de output do Athena é separado dos dados
-                f"arn:aws:s3:::aws-athena-query-results-{account_id}-*",
-                f"arn:aws:s3:::aws-athena-query-results-{account_id}-*/*",
+                f"arn:aws:s3:::athena-results-cloudmart-{account_id}",
+                f"arn:aws:s3:::athena-results-cloudmart-{account_id}/*",
+            ],
+        ))
+
+        # Athena — acesso explícito ao workgroup cloudmart-analysts
+        role.add_to_policy(iam.PolicyStatement(
+            sid="AthenaWorkgroupAccess",
+            actions=[
+                "athena:GetWorkGroup",
+                "athena:ListNamedQueries",
+                "athena:GetNamedQuery",
+            ],
+            resources=[
+                f"arn:aws:athena:{self.region}:{account_id}:workgroup/cloudmart-analysts",
             ],
         ))
 
