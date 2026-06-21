@@ -50,3 +50,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Claude Code
+CLAUDE.md
