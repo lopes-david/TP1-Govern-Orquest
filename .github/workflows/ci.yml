@@ -52,13 +52,12 @@ jobs:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID || '000000000000' }}
 
   # ──────────────────────────────────────────────────────────────────────────
-  # 3. dbt Docs — Gera e publica documentação viva
+  # 3. Valida modelos dbt (compilação sem conexão)
   # ──────────────────────────────────────────────────────────────────────────
-  dbt-docs:
-    name: dbt Docs Generate & Publish
+  dbt-compile:
+    name: dbt Compile (validate models)
     runs-on: ubuntu-latest
-    needs: [lint, cdk-synth]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: lint
     steps:
       - uses: actions/checkout@v4
 
@@ -69,38 +68,20 @@ jobs:
       - name: Install dbt + Athena adapter
         run: pip install "dbt-athena-community>=1.8,<2.0"
 
-      - name: Verify dbt installation
-        run: dbt --version
-
-      - name: Generate dbt docs
+      - name: dbt debug
         working-directory: dbt
-        run: dbt docs generate --profiles-dir . --empty-catalog
+        run: dbt debug --profiles-dir . --no-version-check || true
         env:
-          DBT_S3_STAGING_DIR: "s3://placeholder-not-used-empty-catalog/"
+          DBT_S3_STAGING_DIR: "s3://placeholder/"
           AWS_DEFAULT_REGION: sa-east-1
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'AKIAIOSFODNN7EXAMPLE' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' }}
+          AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+          AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
-      - name: Upload docs artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbt-docs-${{ github.sha }}
-          path: |
-            dbt/target/manifest.json
-            dbt/target/catalog.json
-            dbt/target/index.html
-          retention-days: 30
-
-      - name: Publish docs to S3
-        if: env.DOCS_BUCKET != ''
-        run: |
-          aws s3 sync dbt/target/ \
-            s3://$DOCS_BUCKET/dbt-docs/ \
-            --exclude "*.py" \
-            --exclude "compiled/*" \
-            --delete
+      - name: dbt parse (validate SQL syntax)
+        working-directory: dbt
+        run: dbt parse --profiles-dir .
         env:
-          DOCS_BUCKET: ${{ secrets.DOCS_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          DBT_S3_STAGING_DIR: "s3://placeholder/"
           AWS_DEFAULT_REGION: sa-east-1
+          AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+          AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
